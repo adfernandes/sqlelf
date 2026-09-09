@@ -6,12 +6,6 @@ on:
     branches:
       - main
 
-# The preview step comments on the pull request; nothing else here needs
-# more than read access.
-permissions:
-  contents: read
-  pull-requests: write
-
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -42,19 +36,3 @@ jobs:
         nix build
         nix flake check
 
-    # Comment a link that boots this build in the reviewer's browser, in a
-    # VM running in the tab. The cachix step above is what publishes the
-    # path; this only names it, so it needs no token of its own.
-    #
-    # Linux only, because the guest is x86_64 Linux and a darwin build has
-    # nothing to run it. Pull requests only, because there is nothing to
-    # comment on otherwise. A pull request from a fork gets no link: the
-    # push above has no token there, and the action says so and skips
-    # rather than posting a link to a path no cache holds.
-    - name: Preview in a browser
-      if: matrix.os == 'ubuntu-latest' && github.event_name == 'pull_request'
-      uses: fzakaria/trynix@main
-      with:
-        cache: https://sqlelf.cachix.org
-        publicKey: sqlelf.cachix.org-1:MLnjolA9AsKscTOJKDSA+ZAcgIK8BwZA574j4+Cs2bg=
-        attrs: .#default

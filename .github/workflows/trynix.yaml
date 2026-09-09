@@ -1,0 +1,75 @@
+# Comment a link on every pull request that boots that branch's sqlelf in
+# the reviewer's browser, in a VM running in the tab. Forks included.
+#
+# Separate from main_nix.yaml because the trigger differs, not because
+# the secret does: both push to the `sqlelf` cache. That is a deliberate
+# choice and worth stating plainly. This workflow runs a fork's code with
+# CACHIX_AUTH_TOKEN in the environment, so a malicious pull request can
+# read that token and push paths of its own to the cache contributors and
+# CI substitute from, signed with this project's key. A cache used only
+# for previews would bound that to a cache nobody reads; the trade here
+# is fewer moving parts against that risk.
+#
+# `pull_request` would be safer and also useless here: it hands a fork's
+# job no secrets, so there would be nothing to push with.
+# `pull_request_target` runs in this repository's context, which is the
+# only way to give a fork's build a token, and the checkout below is then
+# the contributor's code. A flake evaluates arbitrary code before it
+# builds anything, so assume it can read anything this job holds.
+#
+# Worth knowing: pull_request_target is not covered by GitHub's "require
+# approval for first-time contributors" setting. This runs immediately
+# for everyone, including a stranger's first pull request. To put a
+# button in front of it, add `environment:` with required reviewers.
+#
+# No setup: this uses the CACHIX_AUTH_TOKEN main_nix.yaml already has.
+name: trynix preview
+
+on:
+  pull_request_target:
+
+# Every push to the branch re-runs this, force pushes included, and the
+# comment is edited in place rather than repeated. Without this block a
+# burst of pushes leaves several runs racing and the slowest one wins the
+# comment, so the link could name an older commit than the diff on screen.
+concurrency:
+  group: trynix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+
+    steps:
+      # The pull request's own commit. This trigger checks out the base
+      # branch by default, which would preview the wrong thing.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: sqlelf
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - run: nix build .#default
+
+      # No token here. The step above publishes the path; this names it
+      # and posts the link. `commit` puts the SHA in the comment, which is
+      # what tells a reviewer whether the link matches the diff they are
+      # reading after a force push.
+      - uses: fzakaria/trynix@v1
+        with:
+          cache: https://sqlelf.cachix.org
+          publicKey: sqlelf.cachix.org-1:MLnjolA9AsKscTOJKDSA+ZAcgIK8BwZA574j4+Cs2bg=
+          commit: ${{ github.event.pull_request.head.sha }}
+          attrs: .#default
